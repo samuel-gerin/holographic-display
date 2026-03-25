@@ -1,3 +1,0 @@
-- How do they determine the phase and rgb values to create the image at a certain location?
-Do they pick a logic image and then tune phase parameters?
-
