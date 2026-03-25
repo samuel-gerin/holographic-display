@@ -1,6 +1,9 @@
 [tool.poetry]
 name = "dsp-course-samuel"
 version = "0.1.0"
+packages = [
+    { include = "holographic_display" }
+]
 description = ""
 authors = [
     "Samuel Chantal Rudi Gerin",
