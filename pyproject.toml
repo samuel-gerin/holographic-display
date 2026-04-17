@@ -21,6 +21,7 @@ torchvision = "^0.25.0"
 imageio = "^2.37.3"
 tqdm = "^4.67.3"
 jupyter = "^1.1.1"
+kaleido = "^1.2.0"
 
 
 [build-system]
