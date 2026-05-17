@@ -29,6 +29,8 @@ returns a tensor ready to use with no extra transforms.
 """
 
 import os
+import argparse
+import math
 import torch
 from tqdm.auto import trange
 
@@ -67,34 +69,120 @@ NY_SLM    = NX_SLM    = 256             # spatial resolution of SLM phase image
 ROOT = "holographic_display/data"
 
 
-def sample_dir(split: str, idx: int) -> str:
+def sample_dir(root: str, split: str, idx: int, n_train: int) -> str:
     """Returns e.g.  data/train/sample_0042"""
-    folder = "train" if idx < N_TRAIN else "val"
-    return os.path.join(ROOT, folder, f"sample_{idx:04d}")
+    folder = "train" if idx < n_train else "val"
+    return os.path.join(root, folder, f"sample_{idx:04d}")
 
 
-def generate_inputs() -> tuple[torch.Tensor, torch.Tensor]:
+def _gaussian_kernel2d(size: int, sigma: float, device: str) -> torch.Tensor:
+    ax = torch.arange(size, device=device, dtype=torch.float32) - (size - 1) / 2
+    xx, yy = torch.meshgrid(ax, ax, indexing="ij")
+    kernel = torch.exp(-(xx**2 + yy**2) / (2 * sigma**2))
+    kernel = kernel / kernel.sum().clamp_min(1e-12)
+    return kernel
+
+
+def _blur2d(img: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
+    """img: [H,W], kernel: [K,K]"""
+    import torch.nn.functional as F
+
+    k = kernel.shape[0]
+    pad = k // 2
+    x = img[None, None]
+    w = kernel[None, None]
+    x = F.pad(x, (pad, pad, pad, pad), mode="reflect")
+    y = F.conv2d(x, w)
+    return y[0, 0]
+
+
+def generate_inputs(mode: str, device: str) -> tuple[torch.Tensor, torch.Tensor]:
+    """Generate (source, phase) targets.
+
+    - mode='random': matches the original notebook behavior (i.i.d. uniform noise)
+    - mode='structured': generates smoother, more learnable targets (blobs + low-pass phase)
     """
-    Random RGB source in [0, 1]  shape [NY_SOURCE, NX_SOURCE, 3]
-    Random phase image in [-1, 1] shape [NY_SLM, NX_SLM]
-    """
-    source = torch.rand(NY_SOURCE, NX_SOURCE, 3, dtype=torch.float32)
-    phase  = torch.empty(NY_SLM, NX_SLM, dtype=torch.float32).uniform_(-1.0, 1.0)
+    if mode == "random":
+        source = torch.rand(NY_SOURCE, NX_SOURCE, 3, dtype=torch.float32, device=device)
+        phase = torch.empty(NY_SLM, NX_SLM, dtype=torch.float32, device=device).uniform_(-1.0, 1.0)
+        return source, phase
+
+    if mode != "structured":
+        raise ValueError(f"Unknown mode: {mode}")
+
+    # Structured RGB: sum of a few Gaussian blobs per channel.
+    yy, xx = torch.meshgrid(
+        torch.linspace(-1.0, 1.0, NY_SOURCE, device=device),
+        torch.linspace(-1.0, 1.0, NX_SOURCE, device=device),
+        indexing="ij",
+    )
+
+    source = torch.zeros(NY_SOURCE, NX_SOURCE, 3, dtype=torch.float32, device=device)
+    n_blobs = 6
+    for c in range(3):
+        for _ in range(n_blobs):
+            cx = torch.empty((), device=device).uniform_(-0.7, 0.7)
+            cy = torch.empty((), device=device).uniform_(-0.7, 0.7)
+            sigma = torch.empty((), device=device).uniform_(0.05, 0.25)
+            amp = torch.empty((), device=device).uniform_(0.3, 1.0)
+            blob = amp * torch.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * sigma**2))
+            source[..., c] += blob
+
+    source = source / source.max().clamp_min(1e-12)
+    source = source.clamp(0.0, 1.0)
+
+    # Structured phase: low-pass filtered noise mapped to [-1, 1].
+    phase = torch.randn(NY_SLM, NX_SLM, dtype=torch.float32, device=device)
+    kernel = _gaussian_kernel2d(size=21, sigma=4.0, device=device)
+    phase = _blur2d(phase, kernel)
+    phase = phase - phase.mean()
+    phase = phase / phase.abs().max().clamp_min(1e-12)
+    phase = phase.clamp(-1.0, 1.0)
+
     return source, phase
 
 
+def get_args():
+    parser = argparse.ArgumentParser(description="Generate holographic dataset")
+    parser.add_argument("--root", type=str, default=ROOT, help="Output root directory")
+    parser.add_argument("--n_total", type=int, default=N_TOTAL)
+    parser.add_argument("--n_train", type=int, default=N_TRAIN)
+    parser.add_argument("--device", type=str, default=DEVICE)
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="random",
+        choices=["random", "structured"],
+        help="Target generation mode.",
+    )
+    parser.add_argument("--seed", type=int, default=None, help="Optional RNG seed")
+    return parser.parse_args()
+
+
 def main():
-    torch.set_default_device(DEVICE)
+    args = get_args()
 
-    print(f"Generating {N_TOTAL} samples  ({N_TRAIN} train / {N_VAL} val)")
-    print(f"Device : {DEVICE}")
+    if args.seed is not None:
+        torch.manual_seed(args.seed)
+
+    torch.set_default_device(args.device)
+
+    n_total = args.n_total
+    n_train = args.n_train
+    n_val = n_total - n_train
+
+    print(f"Generating {n_total} samples  ({n_train} train / {n_val} val)")
+    print(f"Device : {args.device}")
     print(f"Source : {NX_SOURCE}×{NY_SOURCE}  |  SLM: {NX_SLM}×{NY_SLM}")
-    print(f"Saving to: {os.path.abspath(ROOT)}\n")
+    print(f"Mode   : {args.mode}")
+    if args.seed is not None:
+        print(f"Seed   : {args.seed}")
+    print(f"Saving to: {os.path.abspath(args.root)}\n")
 
-    os.makedirs(ROOT, exist_ok=True)
+    os.makedirs(args.root, exist_ok=True)
 
-    for i in trange(N_TOTAL, desc="Generating samples"):
-        source, phase = generate_inputs()
+    for i in trange(n_total, desc="Generating samples"):
+        source, phase = generate_inputs(mode=args.mode, device=args.device)
 
         # Forward model: returns [cam_8cm, cam_10cm], each [NY_CAMERA, NX_CAMERA, 3]
         results = propagate(
@@ -114,7 +202,7 @@ def main():
         cam_10cm = results[1].cpu()     # [NY_CAMERA, NX_CAMERA, 3]
 
         # Save all four tensors for this sample
-        out_dir = sample_dir("train" if i < N_TRAIN else "val", i)
+        out_dir = sample_dir(args.root, "train" if i < n_train else "val", i, n_train=n_train)
         os.makedirs(out_dir, exist_ok=True)
 
         torch.save(source.cpu(),  os.path.join(out_dir, "source.pt"))
@@ -122,7 +210,7 @@ def main():
         torch.save(cam_8cm,       os.path.join(out_dir, "cam_8cm.pt"))
         torch.save(cam_10cm,      os.path.join(out_dir, "cam_10cm.pt"))
 
-    print(f"\nDone. Dataset saved to {os.path.abspath(ROOT)}")
+    print(f"\nDone. Dataset saved to {os.path.abspath(args.root)}")
 
 
 if __name__ == "__main__":

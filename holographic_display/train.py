@@ -20,6 +20,7 @@ Outputs
 
 import os
 import argparse
+from datetime import datetime
 import torch
 import torch.nn as nn
 from torch.optim import Adam
@@ -59,7 +60,33 @@ def get_args():
                         help="Weight for source MSE loss")
     parser.add_argument("--lambda_ph",   type=float, default=1.0,
                         help="Weight for phase MSE loss")
-    parser.add_argument("--out_dir",     type=str,   default="checkpoints")
+    parser.add_argument(
+        "--src_weight_alpha",
+        type=float,
+        default=0.0,
+        help=(
+            "Optional pixel-weighting for the source loss. If >0, bright pixels in the GT source "
+            "are weighted higher: w = 1 + alpha * mean(GT_RGB)."
+        ),
+    )
+    parser.add_argument(
+        "--ph_weight_alpha",
+        type=float,
+        default=0.0,
+        help=(
+            "Optional pixel-weighting for the phase loss. If >0, large-magnitude GT phase pixels "
+            "are weighted higher: w = 1 + alpha * |GT_phase|."
+        ),
+    )
+    parser.add_argument(
+        "--out_dir",
+        type=str,
+        default=None,
+        help=(
+            "Output directory. If omitted, a unique run folder is created under 'checkpoints/' "
+            "to avoid overwriting previous runs."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -68,19 +95,45 @@ def get_args():
 class CombinedMSELoss(nn.Module):
     """Weighted sum of MSE losses on source and phase outputs."""
 
-    def __init__(self, lambda_src: float = 1.0, lambda_ph: float = 1.0):
+    def __init__(
+        self,
+        lambda_src: float = 1.0,
+        lambda_ph: float = 1.0,
+        src_weight_alpha: float = 0.0,
+        ph_weight_alpha: float = 0.0,
+    ):
         super().__init__()
-        self.mse        = nn.MSELoss()
         self.lambda_src = lambda_src
         self.lambda_ph  = lambda_ph
+        self.src_weight_alpha = src_weight_alpha
+        self.ph_weight_alpha = ph_weight_alpha
+
+    def _weighted_mse(self, pred: torch.Tensor, target: torch.Tensor, weight: torch.Tensor | None) -> torch.Tensor:
+        per_pixel = (pred - target) ** 2
+        if weight is None:
+            return per_pixel.mean()
+        # weight is broadcastable to pred/target
+        return (per_pixel * weight).mean()
 
     def forward(
         self,
         pred_src: torch.Tensor, target_src: torch.Tensor,
         pred_ph:  torch.Tensor, target_ph:  torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        loss_src = self.mse(pred_src, target_src)
-        loss_ph  = self.mse(pred_ph,  target_ph)
+        # Optional weighting to discourage "predict dark everywhere" for sparse sources.
+        w_src = None
+        if self.src_weight_alpha and self.src_weight_alpha > 0:
+            # [B,1,H,W], values roughly in [0,1]
+            luminance = target_src.mean(dim=1, keepdim=True)
+            w_src = 1.0 + self.src_weight_alpha * luminance
+
+        # Optional weighting to discourage "predict ~0 phase" collapse.
+        w_ph = None
+        if self.ph_weight_alpha and self.ph_weight_alpha > 0:
+            w_ph = 1.0 + self.ph_weight_alpha * target_ph.abs()
+
+        loss_src = self._weighted_mse(pred_src, target_src, w_src)
+        loss_ph  = self._weighted_mse(pred_ph,  target_ph,  w_ph)
         total    = self.lambda_src * loss_src + self.lambda_ph * loss_ph
         return total, loss_src, loss_ph
 
@@ -180,6 +233,10 @@ def save_loss_plot(train_losses: list, val_losses: list, out_path: str):
 def main():
     args   = get_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    if args.out_dir is None:
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        args.out_dir = os.path.join("checkpoints", f"run_{stamp}")
     print(f"\n{'='*55}")
     print(f"  Holographic U-Net Training")
     print(f"{'='*55}")
@@ -189,6 +246,7 @@ def main():
     print(f"  Batch size  : {args.batch_size}")
     print(f"  LR          : {args.lr}")
     print(f"  Camera size : {args.camera_size}")
+    print(f"  Out dir     : {args.out_dir}")
     print(f"{'='*55}\n")
 
     # ── Data ──────────────────────────────────────────────────────────────────
@@ -209,13 +267,17 @@ def main():
         optimizer, mode="min", factor=0.5, patience=5
     )
     criterion = CombinedMSELoss(
-        lambda_src=args.lambda_src, lambda_ph=args.lambda_ph
+        lambda_src=args.lambda_src,
+        lambda_ph=args.lambda_ph,
+        src_weight_alpha=args.src_weight_alpha,
+        ph_weight_alpha=args.ph_weight_alpha,
     )
 
     os.makedirs(args.out_dir, exist_ok=True)
 
     train_losses, val_losses = [], []
     best_val_loss = float("inf")
+    best_epoch = None
 
     # ── Epoch loop ─────────────────────────────────────────────────────────────
     for epoch in range(1, args.epochs + 1):
@@ -246,7 +308,13 @@ def main():
         # Save best model
         if v_loss < best_val_loss:
             best_val_loss = v_loss
-            torch.save(model.state_dict(), os.path.join(args.out_dir, "best_model.pt"))
+            best_epoch = epoch
+            best_path = os.path.join(args.out_dir, "best_model.pt")
+            torch.save(model.state_dict(), best_path)
+
+            # Keep an epoch-stamped copy so the exact best isn't lost if you train again.
+            stamped_path = os.path.join(args.out_dir, f"best_model_epoch_{epoch:03d}.pt")
+            torch.save(model.state_dict(), stamped_path)
             best_marker = "  ← best"
         else:
             best_marker = ""
@@ -274,7 +342,10 @@ def main():
         out_path=os.path.join(args.out_dir, "train_val_loss.png"),
     )
 
-    print(f"\nTraining complete. Best val loss: {best_val_loss:.5f}")
+    if best_epoch is None:
+        print(f"\nTraining complete. Best val loss: {best_val_loss:.5f}")
+    else:
+        print(f"\nTraining complete. Best val loss: {best_val_loss:.5f} at epoch {best_epoch}")
 
 
 if __name__ == "__main__":

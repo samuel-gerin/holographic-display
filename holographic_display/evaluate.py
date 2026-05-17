@@ -26,12 +26,47 @@ from model import HolographicUNet
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_root",  type=str, default="data")
-    parser.add_argument("--checkpoint", type=str, default="checkpoints/best_model.pt")
-    parser.add_argument("--out_dir",    type=str, default="checkpoints")
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default=None,
+        help=(
+            "Path to model checkpoint. If omitted, uses the most recent 'checkpoints/run_*/best_model.pt'."
+        ),
+    )
+    parser.add_argument(
+        "--out_dir",
+        type=str,
+        default=None,
+        help=(
+            "Output directory for evaluation.png. If omitted, saves next to the checkpoint (or in its run folder)."
+        ),
+    )
     parser.add_argument("--n_samples",  type=int, default=4)
     parser.add_argument("--base_ch",    type=int, default=32)
     parser.add_argument("--camera_size",type=int, default=256)
     return parser.parse_args()
+
+
+def _latest_run_checkpoint(base_dir: str = "checkpoints") -> tuple[str, str] | tuple[None, None]:
+    """Return (checkpoint_path, run_dir) for the newest run folder, or (None, None)."""
+    if not os.path.isdir(base_dir):
+        return None, None
+
+    candidates: list[str] = []
+    for name in os.listdir(base_dir):
+        run_dir = os.path.join(base_dir, name)
+        if not (name.startswith("run_") and os.path.isdir(run_dir)):
+            continue
+        ckpt = os.path.join(run_dir, "best_model.pt")
+        if os.path.isfile(ckpt):
+            candidates.append(run_dir)
+
+    if not candidates:
+        return None, None
+
+    newest = max(candidates, key=lambda d: os.path.getmtime(d))
+    return os.path.join(newest, "best_model.pt"), newest
 
 
 def _tensor_to_rgb_uint8(t: torch.Tensor) -> np.ndarray:
@@ -50,6 +85,19 @@ def _tensor_to_phase(t: torch.Tensor) -> np.ndarray:
 def main():
     args   = get_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    run_dir = None
+    if args.checkpoint is None:
+        ckpt, run_dir = _latest_run_checkpoint("checkpoints")
+        if ckpt is None:
+            raise FileNotFoundError(
+                "No checkpoint provided and no 'checkpoints/run_*/best_model.pt' found. "
+                "Pass --checkpoint explicitly."
+            )
+        args.checkpoint = ckpt
+
+    if args.out_dir is None:
+        args.out_dir = run_dir or os.path.dirname(args.checkpoint) or "checkpoints"
 
     # Load model
     model = HolographicUNet(base_ch=args.base_ch).to(device)
@@ -70,6 +118,14 @@ def main():
         cols=6,
         horizontal_spacing=0.01,
         vertical_spacing=0.04,
+        column_titles=[
+            "Cam @ 8cm",
+            "Cam @ 10cm",
+            "Pred source",
+            "GT source",
+            "Pred phase",
+            "GT phase",
+        ],
     )
 
     with torch.no_grad():

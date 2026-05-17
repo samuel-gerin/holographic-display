@@ -1,3 +1,5 @@
-holographic_display/data
 holographic_display/__pycache__
+holographic_display/data
+holographic_display/data_overfit
+holographic_display/data_struct
 questions.txt

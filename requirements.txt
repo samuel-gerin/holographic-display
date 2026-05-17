@@ -1,0 +1,14 @@
+# Project-specific dependencies for Google Colab
+# Excludes: torch, numpy, pillow, requests, jupyter stack, nvidia drivers
+# (all handled by Colab's base environment)
+
+choreographer==1.2.1
+logistro==2.0.1
+kaleido==1.2.0
+lark==1.3.1
+orjson==3.11.8
+simplejson==3.20.2
+narwhals==2.18.0
+imageio==2.37.3
+httpx==0.28.1
+rfc3987-syntax==1.1.0
