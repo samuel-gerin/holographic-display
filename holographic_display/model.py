@@ -38,16 +38,17 @@ import torch.nn.functional as F
 # ── Building blocks ────────────────────────────────────────────────────────────
 
 class ConvBlock(nn.Module):
-    """Two Conv2d layers each followed by BatchNorm + ReLU."""
+    """Two Conv2d layers each followed by GroupNorm + ReLU."""
 
     def __init__(self, in_ch: int, out_ch: int):
         super().__init__()
+        groups = 8 if out_ch >= 8 else 1
         self.block = nn.Sequential(
             nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_ch),
+            nn.GroupNorm(groups, out_ch),
             nn.ReLU(inplace=True),
             nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_ch),
+            nn.GroupNorm(groups, out_ch),
             nn.ReLU(inplace=True),
         )
 
@@ -135,9 +136,10 @@ class HolographicUNet(nn.Module):
         self.enc_10 = Encoder(in_ch=3, base_ch=B)
 
         # Bottleneck fusion: concatenate both bottlenecks (256+256 = 512) → 256
+        fuse_groups = 8 if B * 8 >= 8 else 1
         self.fuse = nn.Sequential(
             nn.Conv2d(B * 8 * 2, B * 8, kernel_size=1, bias=False),
-            nn.BatchNorm2d(B * 8),
+            nn.GroupNorm(fuse_groups, B * 8),
             nn.ReLU(inplace=True),
         )
 

@@ -22,6 +22,7 @@ imageio = "^2.37.3"
 tqdm = "^4.67.3"
 jupyter = "^1.1.1"
 kaleido = "^1.2.0"
+pytorch-msssim = "^1.0.0"
 
 
 [build-system]

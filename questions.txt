@@ -1,0 +1,22 @@
+- How do they determine the phase and rgb values to create the image at a certain location? Do they pick a logic image and then tune phase parameters?
+
+Om van RGB en phase naar images te gaan is het iterative algoritme, we weten welke images we willen displayen op welke plaats.
+Maar dit neemt tijd natuurlijk want is random en dan met gradient descend wordt het geoptimaliseerd of idk.
+
+Maar als we een NN kunnen trainen om van die images op bepaalde afstanden te gaan naar de color en phase directly. Dan hebben we hiervoor geen iteratief
+nodig. En dit is wat ik moet doen.
+
+- Hoe interpreteer ik de 3D image?
+Verschillende afbeeldingen van een bepaalde breedte achter elkaar en in elke afbeelding maar een zeer sparse image die dan zo de verschillende afbeeldingen
+verbindt. Nu gebruiken we N=2 maar als dit voor N=2 lukt dan theoretisch ook voor N=10000
+
+- Als op zijkant bekijkt dan interfereren de EM golven anders met elkaar, dit wordt dus ook in rekening gebracht bij het berekenen van de forward propagation.
+Wiskundig is dit dus logisch gezien zeer complex.
+
+
+- Maak plots met loss en validation loss zoals lab5 en die moet down gaan.
+- Voor een specific case kan ook individueel gaan kijken.
+- Daarna overfitting, als overfitting dan NN architectuur/dataset veranderedn
+-> If not dan proceededen met een next step zoals extra layers toevoegen.
+
+- Laat NN door AI maken en focus op begrijpen, using en adjusten

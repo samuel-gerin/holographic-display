@@ -1,6 +1,29 @@
-holographic_display/__pycache__
-holographic_display/checkpoints
-holographic_display/data
-holographic_display/data_overfit
-holographic_display/data_struct
-questions.txt
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environments
+.venv/
+.env
+
+# Packaging
+build/
+dist/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Project outputs / data
+checkpoints/
+holographic_display/data*/
+
+# IDE
+.vscode/
+.idea/

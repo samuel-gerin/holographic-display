@@ -72,6 +72,12 @@ def get_args():
         ),
     )
     parser.add_argument(
+        "--ssim_weight",
+        type=float,
+        default=0.5,
+        help="Weight for (1 - SSIM) term in source loss. Set 0 to disable SSIM.",
+    )
+    parser.add_argument(
         "--ph_weight_alpha",
         type=float,
         default=0.0,
@@ -103,12 +109,14 @@ class CombinedMSELoss(nn.Module):
         lambda_ph: float = 1.0,
         src_weight_alpha: float = 0.0,
         ph_weight_alpha: float = 0.0,
+            ssim_weight: float = 0.5,
     ):
         super().__init__()
         self.lambda_src = lambda_src
         self.lambda_ph  = lambda_ph
         self.src_weight_alpha = src_weight_alpha
         self.ph_weight_alpha = ph_weight_alpha
+        self.ssim_weight = ssim_weight
 
     def _weighted_mse(self, pred: torch.Tensor, target: torch.Tensor, weight: torch.Tensor | None) -> torch.Tensor:
         per_pixel = (pred - target) ** 2
@@ -120,7 +128,7 @@ class CombinedMSELoss(nn.Module):
     def _source_loss(self, pred, target, weight):
         l1 = F.l1_loss(pred, target)
         ssim_val = ssim(pred, target, data_range=1.0, size_average=True)
-        return l1 + 0.5 * (1 - ssim_val)
+        return l1 + self.ssim_weight * (1 - ssim_val)
 
     def _angular_mse(
         self, pred: torch.Tensor, target: torch.Tensor, weight: torch.Tensor | None
@@ -294,6 +302,7 @@ def main():
         lambda_ph=args.lambda_ph,
         src_weight_alpha=args.src_weight_alpha,
         ph_weight_alpha=args.ph_weight_alpha,
+            ssim_weight=args.ssim_weight,
     )
 
     os.makedirs(args.out_dir, exist_ok=True)

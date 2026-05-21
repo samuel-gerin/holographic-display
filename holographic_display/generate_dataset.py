@@ -38,7 +38,7 @@ from holographic_display.forward_model import propagate
 from holographic_display.constants import nm, um, mm
 
 # ── Physical parameters (keep identical to notebook) ──────────────────────────
-NX_CAMERA   = NY_CAMERA   = 1024
+DEFAULT_CAMERA_SIZE = 256 # Can change back to 1024 for original image
 DX_SOURCE   = 55.2 * um
 DX_SLM      = 3.74 * um
 
@@ -149,9 +149,15 @@ def get_args():
     parser.add_argument("--n_train", type=int, default=N_TRAIN)
     parser.add_argument("--device", type=str, default=DEVICE)
     parser.add_argument(
+        "--camera_size",
+        type=int,
+        default=DEFAULT_CAMERA_SIZE,
+        help="Spatial size of saved camera images.",
+    )
+    parser.add_argument(
         "--mode",
         type=str,
-        default="random",
+        default="structured",
         choices=["random", "structured"],
         help="Target generation mode.",
     )
@@ -173,7 +179,7 @@ def main():
 
     print(f"Generating {n_total} samples  ({n_train} train / {n_val} val)")
     print(f"Device : {args.device}")
-    print(f"Source : {NX_SOURCE}×{NY_SOURCE}  |  SLM: {NX_SLM}×{NY_SLM}")
+    print(f"Source : {NX_SOURCE}×{NY_SOURCE}  |  SLM: {NX_SLM}×{NY_SLM}  |  Cam: {args.camera_size}×{args.camera_size}")
     print(f"Mode   : {args.mode}")
     if args.seed is not None:
         print(f"Seed   : {args.seed}")
@@ -194,8 +200,8 @@ def main():
             DX_SLM,
             Z_SOURCE_SLM,
             PROPAGATION_DISTANCES,
-            NX_CAMERA,
-            NY_CAMERA,
+            args.camera_size,
+            args.camera_size,
         )
 
         cam_8cm  = results[0].cpu()     # [NY_CAMERA, NX_CAMERA, 3]
