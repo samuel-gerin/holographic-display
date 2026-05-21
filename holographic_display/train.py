@@ -163,6 +163,10 @@ def run_epoch(model, loader, criterion, optimizer, device, train: bool, max_batc
 
             loss, l_src, l_ph = criterion(pred_src, target_src, pred_ph, target_ph)
 
+            if batch_idx == 0 and train:
+                print(f"l_src={l_src.item():.4f}  l_ph={l_ph.item():.4f}")
+                import sys; sys.exit()
+
             if train:
                 optimizer.zero_grad()
                 loss.backward()
