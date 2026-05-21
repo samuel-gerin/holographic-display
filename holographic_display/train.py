@@ -23,9 +23,11 @@ import argparse
 from datetime import datetime
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.optim import Adam
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import plotly.graph_objects as go
+from pytorch_msssim import ssim
 
 from dataset import make_dataloaders
 from model import HolographicUNet, count_parameters
@@ -115,6 +117,11 @@ class CombinedMSELoss(nn.Module):
         # weight is broadcastable to pred/target
         return (per_pixel * weight).mean()
 
+    def _source_loss(self, pred: torch.Tensor, target: torch.Tensor, weight: torch.Tensor | None) -> torch.Tensor:
+        mse = F.mse_loss(pred, target)
+        ssim_val = ssim(pred, target, data_range=1.0, size_average=True)
+        return mse + 0.5 * (1 - ssim_val)
+
     def _angular_mse(
         self, pred: torch.Tensor, target: torch.Tensor, weight: torch.Tensor | None
     ) -> torch.Tensor:
@@ -146,7 +153,7 @@ class CombinedMSELoss(nn.Module):
         if self.ph_weight_alpha and self.ph_weight_alpha > 0:
             w_ph = 1.0 + self.ph_weight_alpha * target_ph.abs()
 
-        loss_src = self._weighted_mse(pred_src, target_src, w_src)
+        loss_src = self._source_loss(pred_src, target_src, w_src)
         loss_ph  = self._angular_mse(pred_ph,  target_ph,  w_ph)
         total    = self.lambda_src * loss_src + self.lambda_ph * loss_ph
         return total, loss_src, loss_ph
