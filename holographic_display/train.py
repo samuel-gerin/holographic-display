@@ -271,11 +271,13 @@ def main():
     print(f"{'='*55}\n")
 
     # ── Data ──────────────────────────────────────────────────────────────────
+    train_shuffle = args.max_train_batches is None
     train_loader, val_loader = make_dataloaders(
         data_root   = args.data_root,
         batch_size  = args.batch_size,
         num_workers = args.num_workers,
         camera_size = args.camera_size,
+        shuffle     = train_shuffle,
     )
 
     # ── Model ─────────────────────────────────────────────────────────────────

@@ -90,6 +90,7 @@ def make_dataloaders(
     batch_size: int = 4,
     num_workers: int = 2,
     camera_size: int | None = CAMERA_SIZE,
+    shuffle: bool = True,
 ) -> tuple[DataLoader, DataLoader]:
     """
     Returns (train_loader, val_loader).
@@ -99,6 +100,7 @@ def make_dataloaders(
         batch_size:  Mini-batch size.
         num_workers: DataLoader worker processes (set 0 for debugging).
         camera_size: Resize camera images to this spatial size.
+        shuffle:     Shuffle training data.
     """
     train_ds = HolographicDataset(os.path.join(data_root, "train"), camera_size=camera_size)
     val_ds   = HolographicDataset(os.path.join(data_root, "val"),   camera_size=camera_size)
@@ -106,7 +108,7 @@ def make_dataloaders(
     train_loader = DataLoader(
         train_ds,
         batch_size=batch_size,
-        shuffle=True,
+        shuffle=shuffle,
         num_workers=num_workers,
         pin_memory=True,
         drop_last=True,
