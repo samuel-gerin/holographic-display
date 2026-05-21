@@ -117,10 +117,10 @@ class CombinedMSELoss(nn.Module):
         # weight is broadcastable to pred/target
         return (per_pixel * weight).mean()
 
-    def _source_loss(self, pred: torch.Tensor, target: torch.Tensor, weight: torch.Tensor | None) -> torch.Tensor:
-        mse = F.mse_loss(pred, target)
+    def _source_loss(self, pred, target, weight):
+        l1 = F.l1_loss(pred, target)
         ssim_val = ssim(pred, target, data_range=1.0, size_average=True)
-        return mse + 0.5 * (1 - ssim_val)
+        return l1 + 0.5 * (1 - ssim_val)
 
     def _angular_mse(
         self, pred: torch.Tensor, target: torch.Tensor, weight: torch.Tensor | None
