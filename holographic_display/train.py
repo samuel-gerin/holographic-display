@@ -115,6 +115,20 @@ class CombinedMSELoss(nn.Module):
         # weight is broadcastable to pred/target
         return (per_pixel * weight).mean()
 
+    def _angular_mse(
+        self, pred: torch.Tensor, target: torch.Tensor, weight: torch.Tensor | None
+    ) -> torch.Tensor:
+        # pred/target are in [-1, 1]; map to radians in [-pi, pi]
+        pred_rad = pred * torch.pi
+        target_rad = target * torch.pi
+        delta = pred_rad - target_rad
+        # Wrap to [-pi, pi] and square
+        ang_err = torch.atan2(torch.sin(delta), torch.cos(delta))
+        per_pixel = ang_err ** 2
+        if weight is None:
+            return per_pixel.mean()
+        return (per_pixel * weight).mean()
+
     def forward(
         self,
         pred_src: torch.Tensor, target_src: torch.Tensor,
@@ -133,7 +147,7 @@ class CombinedMSELoss(nn.Module):
             w_ph = 1.0 + self.ph_weight_alpha * target_ph.abs()
 
         loss_src = self._weighted_mse(pred_src, target_src, w_src)
-        loss_ph  = self._weighted_mse(pred_ph,  target_ph,  w_ph)
+        loss_ph  = self._angular_mse(pred_ph,  target_ph,  w_ph)
         total    = self.lambda_src * loss_src + self.lambda_ph * loss_ph
         return total, loss_src, loss_ph
 
@@ -162,10 +176,6 @@ def run_epoch(model, loader, criterion, optimizer, device, train: bool, max_batc
             pred_src, pred_ph = model(cam_8, cam_10)
 
             loss, l_src, l_ph = criterion(pred_src, target_src, pred_ph, target_ph)
-
-            if batch_idx == 0 and train:
-                print(f"l_src={l_src.item():.4f}  l_ph={l_ph.item():.4f}")
-                import sys; sys.exit()
 
             if train:
                 optimizer.zero_grad()
