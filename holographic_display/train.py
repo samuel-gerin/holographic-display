@@ -87,6 +87,13 @@ def get_args():
         ),
     )
     parser.add_argument(
+        "--phase_loss",
+        type=str,
+        default="l1",
+        choices=["l1", "mse", "angular"],
+        help="Phase loss type.",
+    )
+    parser.add_argument(
         "--out_dir",
         type=str,
         default=None,
@@ -109,7 +116,8 @@ class CombinedMSELoss(nn.Module):
         lambda_ph: float = 1.0,
         src_weight_alpha: float = 0.0,
         ph_weight_alpha: float = 0.0,
-            ssim_weight: float = 0.5,
+        ssim_weight: float = 0.5,
+        phase_loss: str = "l1",
     ):
         super().__init__()
         self.lambda_src = lambda_src
@@ -117,12 +125,19 @@ class CombinedMSELoss(nn.Module):
         self.src_weight_alpha = src_weight_alpha
         self.ph_weight_alpha = ph_weight_alpha
         self.ssim_weight = ssim_weight
+        self.phase_loss = phase_loss
 
     def _weighted_mse(self, pred: torch.Tensor, target: torch.Tensor, weight: torch.Tensor | None) -> torch.Tensor:
         per_pixel = (pred - target) ** 2
         if weight is None:
             return per_pixel.mean()
         # weight is broadcastable to pred/target
+        return (per_pixel * weight).mean()
+
+    def _weighted_l1(self, pred: torch.Tensor, target: torch.Tensor, weight: torch.Tensor | None) -> torch.Tensor:
+        per_pixel = (pred - target).abs()
+        if weight is None:
+            return per_pixel.mean()
         return (per_pixel * weight).mean()
 
     def _source_loss(self, pred, target, weight):
@@ -162,7 +177,13 @@ class CombinedMSELoss(nn.Module):
             w_ph = 1.0 + self.ph_weight_alpha * target_ph.abs()
 
         loss_src = self._source_loss(pred_src, target_src, w_src)
-        loss_ph  = self._angular_mse(pred_ph,  target_ph,  w_ph)
+        if self.phase_loss == "angular":
+            pred_ph_loss = pred_ph.clamp(-1.0, 1.0)
+            loss_ph = self._angular_mse(pred_ph_loss, target_ph, w_ph)
+        elif self.phase_loss == "mse":
+            loss_ph = self._weighted_mse(pred_ph, target_ph, w_ph)
+        else:
+            loss_ph = self._weighted_l1(pred_ph, target_ph, w_ph)
         total    = self.lambda_src * loss_src + self.lambda_ph * loss_ph
         return total, loss_src, loss_ph
 
@@ -303,6 +324,7 @@ def main():
         src_weight_alpha=args.src_weight_alpha,
         ph_weight_alpha=args.ph_weight_alpha,
             ssim_weight=args.ssim_weight,
+        phase_loss=args.phase_loss,
     )
 
     os.makedirs(args.out_dir, exist_ok=True)

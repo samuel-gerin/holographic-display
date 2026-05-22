@@ -18,7 +18,7 @@ Architecture overview
                  skip from both encoders)        skip from both encoders)
                         │                               │
                  source head                      phase head
-                 Conv → Sigmoid                   Conv → Tanh
+                 Conv → Sigmoid                   Conv (raw)
                  [3, 256, 256]                    [1, 256, 256]
 
 Skip connections pass feature maps from *both* encoder branches at each
@@ -27,7 +27,7 @@ resolution and concatenate them into the corresponding decoder stage.
 Value ranges
 ────────────
     source output : Sigmoid  → [0, 1]    (RGB)
-    phase  output : Tanh     → [-1, 1]   (SLM phase)
+    phase  output : raw conv → (-inf, inf)
 """
 
 import torch
@@ -160,10 +160,7 @@ class HolographicUNet(nn.Module):
         self.up_b3 = Up(in_ch=B * 8,  skip_ch=B * 4 * 2, out_ch=B * 4)
         self.up_b2 = Up(in_ch=B * 4,  skip_ch=B * 2 * 2, out_ch=B * 2)
         self.up_b1 = Up(in_ch=B * 2,  skip_ch=B     * 2, out_ch=B)
-        self.head_phase = nn.Sequential(
-            nn.Conv2d(B, 1, kernel_size=1),
-            nn.Tanh(),
-        )
+        self.head_phase = nn.Conv2d(B, 1, kernel_size=1)
 
     def forward(
         self, cam_8: torch.Tensor, cam_10: torch.Tensor
@@ -174,7 +171,7 @@ class HolographicUNet(nn.Module):
             cam_10 : [B, 3, H, W]
         Returns:
             source : [B, 3, H, W]  in [0, 1]
-            phase  : [B, 1, H, W]  in [-1, 1]
+            phase  : [B, 1, H, W]  raw (unbounded)
         """
         bot_8,  skips_8  = self.enc_8(cam_8)
         bot_10, skips_10 = self.enc_10(cam_10)
