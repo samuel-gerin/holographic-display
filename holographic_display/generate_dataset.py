@@ -32,13 +32,15 @@ import os
 import argparse
 import math
 import torch
+import torch.nn.functional as F
 from tqdm.auto import trange
 
 from holographic_display.forward_model import propagate
 from holographic_display.constants import nm, um, mm
 
 # ── Physical parameters (keep identical to notebook) ──────────────────────────
-DEFAULT_CAMERA_SIZE = 256 # Can change back to 1024 for original image
+DEFAULT_CAMERA_SIZE = 256
+DEFAULT_SIM_CAMERA_SIZE = 1024
 DX_SOURCE   = 55.2 * um
 DX_SLM      = 3.74 * um
 
@@ -149,6 +151,12 @@ def get_args():
     parser.add_argument("--n_train", type=int, default=N_TRAIN)
     parser.add_argument("--device", type=str, default=DEVICE)
     parser.add_argument(
+        "--sim_camera_size",
+        type=int,
+        default=DEFAULT_SIM_CAMERA_SIZE,
+        help="Spatial size used in forward propagation.",
+    )
+    parser.add_argument(
         "--camera_size",
         type=int,
         default=DEFAULT_CAMERA_SIZE,
@@ -179,7 +187,10 @@ def main():
 
     print(f"Generating {n_total} samples  ({n_train} train / {n_val} val)")
     print(f"Device : {args.device}")
-    print(f"Source : {NX_SOURCE}×{NY_SOURCE}  |  SLM: {NX_SLM}×{NY_SLM}  |  Cam: {args.camera_size}×{args.camera_size}")
+    print(
+        f"Source : {NX_SOURCE}×{NY_SOURCE}  |  SLM: {NX_SLM}×{NY_SLM}  |  "
+        f"Cam: {args.sim_camera_size}×{args.sim_camera_size} -> {args.camera_size}×{args.camera_size}"
+    )
     print(f"Mode   : {args.mode}")
     if args.seed is not None:
         print(f"Seed   : {args.seed}")
@@ -200,12 +211,29 @@ def main():
             DX_SLM,
             Z_SOURCE_SLM,
             PROPAGATION_DISTANCES,
-            args.camera_size,
-            args.camera_size,
+            args.sim_camera_size,
+            args.sim_camera_size,
         )
 
-        cam_8cm  = results[0].cpu()     # [NY_CAMERA, NX_CAMERA, 3]
-        cam_10cm = results[1].cpu()     # [NY_CAMERA, NX_CAMERA, 3]
+        cam_8cm = results[0]
+        cam_10cm = results[1]
+        if args.camera_size != args.sim_camera_size:
+            size = (args.camera_size, args.camera_size)
+            cam_8cm = F.interpolate(
+                cam_8cm.permute(2, 0, 1).unsqueeze(0),
+                size=size,
+                mode="bilinear",
+                align_corners=False,
+            ).squeeze(0).permute(1, 2, 0)
+            cam_10cm = F.interpolate(
+                cam_10cm.permute(2, 0, 1).unsqueeze(0),
+                size=size,
+                mode="bilinear",
+                align_corners=False,
+            ).squeeze(0).permute(1, 2, 0)
+
+        cam_8cm = cam_8cm.cpu()
+        cam_10cm = cam_10cm.cpu()
 
         # Save all four tensors for this sample
         out_dir = sample_dir(args.root, "train" if i < n_train else "val", i, n_train=n_train)
