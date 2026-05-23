@@ -97,13 +97,12 @@ def _blur2d(img: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
     y = F.conv2d(x, w)
     return y[0, 0]
 
-
+"""
 def generate_inputs(mode: str, device: str) -> tuple[torch.Tensor, torch.Tensor]:
-    """Generate (source, phase) targets.
+    Generate (source, phase) targets.
 
     - mode='random': matches the original notebook behavior (i.i.d. uniform noise)
     - mode='structured': generates smoother, more learnable targets (blobs + low-pass phase)
-    """
     if mode == "random":
         source = torch.rand(NY_SOURCE, NX_SOURCE, 3, dtype=torch.float32, device=device)
         phase = torch.empty(NY_SLM, NX_SLM, dtype=torch.float32, device=device).uniform_(-1.0, 1.0)
@@ -142,7 +141,58 @@ def generate_inputs(mode: str, device: str) -> tuple[torch.Tensor, torch.Tensor]
     phase = phase.clamp(-1.0, 1.0)
 
     return source, phase
+"""
 
+def compute_phase_from_source(source: torch.Tensor, ny_slm: int, nx_slm: int) -> torch.Tensor:
+    """
+    Compute SLM phase from source using a Fourier hologram approach.
+    This ensures camera images carry information about the source,
+    making the inverse problem learnable.
+    """
+    import torch.nn.functional as F
+    luminance = source.mean(-1)  # [H, W] grayscale
+    lum = F.interpolate(
+        luminance[None, None], size=(ny_slm, nx_slm),
+        mode="bilinear", align_corners=False
+    )[0, 0]
+    fft   = torch.fft.fftshift(torch.fft.fft2(torch.fft.ifftshift(lum)))
+    phase = torch.angle(fft) / torch.pi          # → [-1, 1]
+    # Small random perturbation so samples aren't identical
+    noise = torch.randn_like(phase) * 0.05
+    phase = (phase + noise).clamp(-1.0, 1.0)
+    return phase
+
+
+def generate_inputs(mode: str, device: str) -> tuple[torch.Tensor, torch.Tensor]:
+    if mode == "random":
+        source = torch.rand(NY_SOURCE, NX_SOURCE, 3, dtype=torch.float32, device=device)
+        phase  = compute_phase_from_source(source, NY_SLM, NX_SLM)
+        return source, phase
+
+    if mode != "structured":
+        raise ValueError(f"Unknown mode: {mode}")
+
+    yy, xx = torch.meshgrid(
+        torch.linspace(-1.0, 1.0, NY_SOURCE, device=device),
+        torch.linspace(-1.0, 1.0, NX_SOURCE, device=device),
+        indexing="ij",
+    )
+    source = torch.zeros(NY_SOURCE, NX_SOURCE, 3, dtype=torch.float32, device=device)
+    n_blobs = 6
+    for c in range(3):
+        for _ in range(n_blobs):
+            cx    = torch.empty((), device=device).uniform_(-0.7,  0.7)
+            cy    = torch.empty((), device=device).uniform_(-0.7,  0.7)
+            sigma = torch.empty((), device=device).uniform_(0.05,  0.25)
+            amp   = torch.empty((), device=device).uniform_(0.3,   1.0)
+            source[..., c] += amp * torch.exp(
+                -((xx - cx)**2 + (yy - cy)**2) / (2 * sigma**2)
+            )
+    source = (source / source.max().clamp_min(1e-12)).clamp(0.0, 1.0)
+
+    # Phase computed FROM source — not independent random noise
+    phase = compute_phase_from_source(source, NY_SLM, NX_SLM)
+    return source, phase
 
 def get_args():
     parser = argparse.ArgumentParser(description="Generate holographic dataset")
