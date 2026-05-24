@@ -60,13 +60,13 @@ class HolographicDataset(Dataset):
         # Load tensors — shapes as saved by generate_dataset.py
         source  = torch.load(os.path.join(folder, "source.pt"),  weights_only=True)  # [H, W, 3]
         phase   = torch.load(os.path.join(folder, "phase.pt"),   weights_only=True)  # [H, W]
-        cam_8   = torch.load(os.path.join(folder, "cam_8cm.pt"), weights_only=True)  # [H, W, 3]
-        cam_10  = torch.load(os.path.join(folder, "cam_10cm.pt"),weights_only=True)  # [H, W, 3]
+        cam_8   = torch.load(os.path.join(folder, "cam_8cm.pt"),  weights_only=True)
+        cam_10  = torch.load(os.path.join(folder, "cam_10cm.pt"), weights_only=True)
+        cam_8  = cam_8.permute(2, 0, 1).clamp(0.0, 1.0)   # [H,W,3] → [3,H,W], clipped
+        cam_10 = cam_10.permute(2, 0, 1).clamp(0.0, 1.0)  # [H,W,3] → [3,H,W], clipped
 
         # Permute spatial tensors from [H, W, C] → [C, H, W] for PyTorch convolutions
         source = source.permute(2, 0, 1)   # [3, H_src, W_src]
-        cam_8  = cam_8.permute(2, 0, 1)    # [3, H_cam, W_cam]
-        cam_10 = cam_10.permute(2, 0, 1)   # [3, H_cam, W_cam]
         phase  = phase.unsqueeze(0)        # [1, H_slm, W_slm]
 
         # Optionally resize camera images

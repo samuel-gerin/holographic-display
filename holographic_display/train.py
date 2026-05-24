@@ -145,19 +145,21 @@ class CombinedMSELoss(nn.Module):
         ssim_val = ssim(pred, target, data_range=1.0, size_average=True)
         return l1 + self.ssim_weight * (1 - ssim_val)
 
-    def _angular_mse(
-        self, pred: torch.Tensor, target: torch.Tensor, weight: torch.Tensor | None
-    ) -> torch.Tensor:
-        # pred/target are in [-1, 1]; map to radians in [-pi, pi]
-        pred_rad = pred * torch.pi
+    def _phase_loss(self, pred, target, weight):
+        # Angular term
+        pred_rad   = pred * torch.pi
         target_rad = target * torch.pi
-        delta = pred_rad - target_rad
-        # Wrap to [-pi, pi] and square
-        ang_err = torch.atan2(torch.sin(delta), torch.cos(delta))
-        per_pixel = ang_err ** 2
-        if weight is None:
-            return per_pixel.mean()
-        return (per_pixel * weight).mean()
+        delta      = pred_rad - target_rad
+        ang_err    = torch.atan2(torch.sin(delta), torch.cos(delta))
+        per_pixel  = (ang_err / torch.pi) ** 2
+        angular    = (per_pixel * weight).mean() if weight is not None else per_pixel.mean()
+
+        # SSIM structural term — rescale [-1,1] → [0,1]
+        pred_01   = (pred.clamp(-1, 1) + 1) / 2
+        target_01 = (target + 1) / 2
+        ssim_ph   = ssim(pred_01, target_01, data_range=1.0, size_average=True)
+
+        return angular + 0.5 * (1 - ssim_ph)
 
     def forward(
         self,
@@ -179,7 +181,7 @@ class CombinedMSELoss(nn.Module):
         loss_src = self._source_loss(pred_src, target_src, w_src)
         if self.phase_loss == "angular":
             pred_ph_loss = pred_ph.clamp(-1.0, 1.0)
-            loss_ph = self._angular_mse(pred_ph_loss, target_ph, w_ph)
+            loss_ph = self._phase_loss(pred_ph, target_ph, w_ph)
         elif self.phase_loss == "mse":
             loss_ph = self._weighted_mse(pred_ph, target_ph, w_ph)
         else:
@@ -216,6 +218,7 @@ def run_epoch(model, loader, criterion, optimizer, device, train: bool, max_batc
             if train:
                 optimizer.zero_grad()
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
                 optimizer.step()
 
             total_loss += loss.item()
@@ -316,7 +319,7 @@ def main():
     # ── Optimiser & scheduler ─────────────────────────────────────────────────
     optimizer = Adam(model.parameters(), lr=args.lr)
     scheduler = ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=5
+        optimizer, mode="min", factor=0.5, patience=15  # was 5
     )
     criterion = CombinedMSELoss(
         lambda_src=args.lambda_src,
