@@ -162,8 +162,9 @@ class HolographicUNet(nn.Module):
         self.up_b1 = Up(in_ch=B * 2,  skip_ch=B     * 2, out_ch=B)
         self.head_phase = nn.Sequential(
             nn.Conv2d(B, 1, kernel_size=1),
-            nn.Tanh()   # constrains output to (-1,1), prevents drift
+            nn.Tanh()
         )
+
     def forward(
         self, cam_8: torch.Tensor, cam_10: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
