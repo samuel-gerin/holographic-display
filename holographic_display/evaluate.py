@@ -25,26 +25,14 @@ from model import HolographicUNet
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_root",  type=str, default="data")
-    parser.add_argument(
-        "--checkpoint",
-        type=str,
-        default=None,
-        help=(
-            "Path to model checkpoint. If omitted, uses the most recent 'checkpoints/run_*/best_model.pt'."
-        ),
-    )
-    parser.add_argument(
-        "--out_dir",
-        type=str,
-        default=None,
-        help=(
-            "Output directory for evaluation.png. If omitted, saves next to the checkpoint (or in its run folder)."
-        ),
-    )
-    parser.add_argument("--n_samples",  type=int, default=4)
-    parser.add_argument("--base_ch",    type=int, default=32)
-    parser.add_argument("--camera_size",type=int, default=256)
+    parser.add_argument("--data_root",   type=str, default="data")
+    parser.add_argument("--split",       type=str, default="val", choices=["train", "val"],
+                        help="Which split to evaluate on (default: val)")
+    parser.add_argument("--checkpoint",  type=str, default=None)
+    parser.add_argument("--out_dir",     type=str, default=None)
+    parser.add_argument("--n_samples",   type=int, default=4)
+    parser.add_argument("--base_ch",     type=int, default=32)
+    parser.add_argument("--camera_size", type=int, default=256)
     return parser.parse_args()
 
 
@@ -108,7 +96,7 @@ def main():
 
     # Load validation set
     val_ds = HolographicDataset(
-        os.path.join(args.data_root, "val"),
+        os.path.join(args.data_root, args.split),
         camera_size=args.camera_size,
     )
     n = min(args.n_samples, len(val_ds))
