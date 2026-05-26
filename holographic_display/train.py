@@ -203,15 +203,23 @@ def run_epoch(model, loader, criterion, optimizer, device, train: bool, max_batc
         for batch_idx, batch in enumerate(loader):
             if max_batches is not None and batch_idx >= max_batches:
                 break
-            inp    = batch["input"].to(device)     # [B, 6, H, W]
-            target_src = batch["source"].to(device) # [B, 3, H, W]
-            target_ph  = batch["phase"].to(device)  # [B, 1, H, W]
+            inp        = batch["input"].to(device)
+            target_src = batch["source"].to(device)
+            target_ph  = batch["phase"].to(device)
 
-            # Split the 6-channel input back into two 3-channel views
             cam_8  = inp[:, :3]
             cam_10 = inp[:, 3:]
 
             pred_src, pred_ph = model(cam_8, cam_10)
+
+            # Resize targets to match model output resolution
+            _, _, H_pred, W_pred = pred_src.shape
+            if target_src.shape[-1] != W_pred:
+                target_src = F.interpolate(target_src, size=(H_pred, W_pred),
+                                           mode="bilinear", align_corners=False)
+            if target_ph.shape[-1] != W_pred:
+                target_ph = F.interpolate(target_ph, size=(H_pred, W_pred),
+                                          mode="bilinear", align_corners=False)
 
             loss, l_src, l_ph = criterion(pred_src, target_src, pred_ph, target_ph)
 
@@ -230,7 +238,6 @@ def run_epoch(model, loader, criterion, optimizer, device, train: bool, max_batc
         raise RuntimeError("No batches were processed (empty loader or max_batches=0).")
 
     return total_loss / n_batches, total_src / n_batches, total_ph / n_batches
-
 
 # ── Plotting ───────────────────────────────────────────────────────────────────
 
